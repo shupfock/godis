@@ -1,22 +1,28 @@
 package server
 
 import (
-	"fmt"
-	"context"
 	"bufio"
-	"io"
-	"strconv"
-	"net"
-	"sync"
+	"context"
+	"fmt"
+	"godis/src/cluster"
+	"godis/src/config"
+	DBImpl "godis/src/db"
+	"godis/src/interface/db"
 	"godis/src/lib/logger"
-	"godis/src/redis/reply"
 	"godis/src/lib/sync/atomic"
+	"godis/src/redis/reply"
+	"io"
+	"net"
+	"strconv"
+	"sync"
 )
 
 var (
+	// UnknowErrReplyBytes 未知错误
 	UnknowErrReplyBytes = []byte("-ERR unknow\r\n")
 )
 
+// Handler 请求处理者
 type Handler struct {
 	/*
 	 * 记录活跃的客户端链接
@@ -24,21 +30,29 @@ type Handler struct {
 	 */
 	activeConn sync.Map
 
-	// db db.DB
+	db db.DB
 
-	closing  atomic.AtomicBool
+	closing atomic.AtomicBool
 }
 
-func NewHandler() *Handler{
+// NewHandler 新建一个 handler
+func NewHandler() *Handler {
+	var db db.DB
+	if config.Properties.Peers != nil && len(config.Properties.Peers) > 0 {
+		db = cluster.NewCluster()
+	} else {
+		db = DBImpl.NewDB()
+	}
 	return &Handler{}
 }
 
-func (h *Handler)closeClient(client * Client){
+func (h *Handler) closeClient(client *Client) {
 	client.Close()
 	h.activeConn.Delete(client)
 }
 
-func (h *Handler)Handle(ctx context.Context, conn net.Conn){
+// Handle 处理请求
+func (h *Handler) Handle(ctx context.Context, conn net.Conn) {
 	if h.closing.Get() {
 		// 关闭过程中不接受新链接
 		conn.Close()
@@ -57,7 +71,7 @@ func (h *Handler)Handle(ctx context.Context, conn net.Conn){
 	var msg []byte
 	for {
 		// 读取下一行
-		if fixedLen == 0 {  // 正常模式使用 CRLF 区分数据行
+		if fixedLen == 0 { // 正常模式使用 CRLF 区分数据行
 			msg, err = reader.ReadBytes('\n')
 			// if err != nul {
 			// 	if err == io.EOF ||
@@ -68,7 +82,7 @@ func (h *Handler)Handle(ctx context.Context, conn net.Conn){
 			// 		logger.Warn(client)
 			// 	}
 			// 	h.closeCilent(client)
-			// 	return 
+			// 	return
 			// }
 
 			// 判断是否以 \r\n 结尾
@@ -90,13 +104,13 @@ func (h *Handler)Handle(ctx context.Context, conn net.Conn){
 			// 	}
 
 			// 	h.closeClient(client)
-			// 	return 
+			// 	return
 			// }
 
 			// 判断是否以 \r\n 结尾
 			if len(msg) == 0 ||
-			msg[len(msg)-2] != '\r' ||
-			msg[len(msg)-1] != '\n' {
+				msg[len(msg)-2] != '\r' ||
+				msg[len(msg)-1] != '\n' {
 				errReply := &reply.ProtocolErrReply{Msg: "invalid multibulk length"}
 				client.conn.Write(errReply.ToBytes())
 			}
@@ -107,19 +121,19 @@ func (h *Handler)Handle(ctx context.Context, conn net.Conn){
 
 		if err != nil {
 			if err == io.EOF ||
-			err == io.ErrUnexpectedEOF {
+				err == io.ErrUnexpectedEOF {
 				logger.Info("connect close")
 			} else {
 				logger.Warn(err)
 			}
 
 			h.closeClient(client)
-			return 
+			return
 		}
 
 		// 解析收到的数据
-		if !client.uploading.Get(){
-			
+		if !client.uploading.Get() {
+
 			// sending == false 表明收到一条指令
 			if msg[0] == '*' {
 				exceptedLine, err := strconv.ParseUint(string(msg[1:len(msg)-2]), 10, 32)
@@ -128,8 +142,8 @@ func (h *Handler)Handle(ctx context.Context, conn net.Conn){
 					continue
 				}
 				// 初始化客户端状态
-				client.waitingReply.Add(1)  // 有指令未完成, 阻止服务器关闭
-				client.uploading.Set(true)  // 正在接受指令中
+				client.waitingReply.Add(1) // 有指令未完成, 阻止服务器关闭
+				client.uploading.Set(true) // 正在接受指令中
 
 				// 初始化计数器和缓冲区
 				client.exceptedArgCount = uint32(exceptedLine)
@@ -140,7 +154,7 @@ func (h *Handler)Handle(ctx context.Context, conn net.Conn){
 			}
 		} else {
 			// 收到了指令的剩余部分
-			line := msg[0:len(msg)-2]  // 溢出换行符
+			line := msg[0 : len(msg)-2] // 溢出换行符
 			if line[0] == '$' {
 				// BulkString 的首行, 读取 string 的长度
 				fixedLen, err := strconv.ParseInt(string(line[1:]), 10, 64)
@@ -153,7 +167,7 @@ func (h *Handler)Handle(ctx context.Context, conn net.Conn){
 					client.conn.Write(errReply.ToBytes())
 				}
 			} else {
-				// 首单参数 
+				// 首单参数
 				client.args[client.receivedCount] = line
 				client.receivedCount++
 			}
@@ -174,15 +188,15 @@ func (h *Handler)Handle(ctx context.Context, conn net.Conn){
 			}
 		}
 
-
 	}
 }
 
-func (h *Handler) Close() error{
+// Close 关闭请求处理者
+func (h *Handler) Close() error {
 	logger.Info("handler shuting down ...")
 	h.closing.Set(true)
 
-	h.activeConn.Range(func(key interface{}, val interface{}) bool{
+	h.activeConn.Range(func(key interface{}, val interface{}) bool {
 		client := key.(*Client)
 		client.Close()
 		return true

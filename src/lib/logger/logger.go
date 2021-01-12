@@ -20,24 +20,37 @@ type Settings struct {
 }
 
 var (
-	F                  *os.File
-	DefaultPrefix      = ""
+	// F 日志文件
+	F *os.File
+	// DefaultPrefix 默认前缀
+	DefaultPrefix = ""
+	// DefaultCallerDepth 默认调用深度
 	DefaultCallerDepth = 2
-	logger             *log.Logger
-	logPrefix          = ""
-	levelFlags         = []string{"DEBUG", "INFO", "WARN", "ERROR", "FATAL"}
+	// logger 日志对象
+	logger *log.Logger
+	// logPrefix 日志前缀
+	logPrefix = ""
+	// levelFlags 日志级别
+	levelFlags = []string{"DEBUG", "INFO", "WARN", "ERROR", "FATAL"}
 )
 
+// Level int 别名
 type Level int
 
 const (
+	// DEBUG 1
 	DEBUG Level = iota
+	// INFO 2
 	INFO
+	// WARNING 3
 	WARNING
+	// ERROR 4
 	ERROR
+	// FATAL 5
 	FATAL
 )
 
+// Setup 安装日志
 func Setup(settings *Settings) {
 	var err error
 	dir := settings.Path
@@ -60,7 +73,7 @@ func setPrefix(level Level) {
 	if ok {
 		logPrefix = fmt.Sprintf("[%s][%s:%d] ", levelFlags[level], filepath.Base(file), line)
 	} else {
-		logPrefix = fmt.Sprint("[%s] ", levelFlags[level])
+		logPrefix = fmt.Sprintf("[%s] ", levelFlags[level])
 	}
 
 	logger.SetPrefix(logPrefix)
@@ -68,25 +81,25 @@ func setPrefix(level Level) {
 
 func Debug(v ...interface{}) {
 	setPrefix(DEBUG)
-	logger.Println(v)
+	logger.Println(v...)
 }
 
 func Info(v ...interface{}) {
 	setPrefix(INFO)
-	logger.Println(v)
+	logger.Println(v...)
 }
 
 func Warn(v ...interface{}) {
 	setPrefix(WARNING)
-	logger.Println(v)
+	logger.Println(v...)
 }
 
 func Error(v ...interface{}) {
 	setPrefix(ERROR)
-	logger.Println(v)
+	logger.Println(v...)
 }
 
 func Fatal(v ...interface{}) {
 	setPrefix(FATAL)
-	logger.Fatalln(v)
+	logger.Fatalln(v...)
 }
